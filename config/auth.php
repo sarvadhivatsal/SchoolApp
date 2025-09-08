@@ -3,7 +3,7 @@
 return [
 
     'defaults' => [
-        'guard' => 'web',
+        'guard' => 'web',   // can also be 'sanctum' if API
         'passwords' => 'accounts',
     ],
 
@@ -12,15 +12,18 @@ return [
             'driver' => 'session',
             'provider' => 'accounts',
         ],
+        'sanctum' => [
+            'driver' => 'sanctum',
+            'provider' => 'accounts',
+        ],
         'admin' => [
-        'driver' => 'session',
-        'provider' => 'admins',
-    ],
-
-    'teacher' => [
-        'driver' => 'session',
-        'provider' => 'teachers',
-    ],
+            'driver' => 'session',
+            'provider' => 'admins',
+        ],
+        'teacher' => [
+            'driver' => 'session',
+            'provider' => 'teachers',
+        ],
     ],
 
     'providers' => [
@@ -28,15 +31,14 @@ return [
             'driver' => 'eloquent',
             'model' => App\Models\Account::class,
         ],
-         'admins' => [
-        'driver' => 'eloquent',
-        'model' => App\Models\Account::class,
-    ],
-
-    'teachers' => [
-        'driver' => 'eloquent',
-        'model' => App\Models\Account::class,
-    ],
+        'admins' => [
+            'driver' => 'eloquent',
+            'model' => App\Models\Account::class,
+        ],
+        'teachers' => [
+            'driver' => 'eloquent',
+            'model' => App\Models\Account::class,
+        ],
     ],
 
     'passwords' => [
