@@ -52,12 +52,14 @@
 
         <div class="form-group mb-3">
             <label>Weekly Mandate</label>
-            <input type="number" name="weekly_mandate" class="form-control" required>
+            <input type="number" name="weekly_mandate" step="0.1" min="0.1"class="form-control"
+           value="{{ old('weekly_mandate', $assignment->weekly_mandate ?? '') }}" required>
         </div>
 
         <div class="form-group mb-3">
             <label>Daily Mandate</label>
-            <input type="number" name="daily_mandate" class="form-control" required>
+          <input type="number" name="daily_mandate" step="1" min="1" class="form-control"
+           value="{{ old('daily_mandate', $assignment->daily_mandate ?? '') }}" required>
         </div>
 
         <button type="submit" class="btn btn-success">Save Assignment</button>

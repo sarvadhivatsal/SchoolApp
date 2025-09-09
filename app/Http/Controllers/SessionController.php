@@ -2,16 +2,14 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Session;
 use App\Models\Assignment;
-use App\Models\Account;
-use App\Models\Teacher;
+use App\Models\Session;
 use App\Models\Student;
 use App\Models\StudentGoal;
-use Illuminate\Http\Request;
+use App\Models\Teacher;
 use Carbon\Carbon;
-use App\Exports\SessionsExport;
-use Maatwebsite\Excel\Facades\Excel;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Yajra\DataTables\Facades\DataTables;
 
 class SessionController extends Controller
@@ -38,12 +36,12 @@ class SessionController extends Controller
                 ->addIndexColumn()
                 ->addColumn('teacher_name', function ($row) {
                     return $row->teacher && $row->teacher->account
-                        ? $row->teacher->account->first_name . ' ' . $row->teacher->account->last_name
+                        ? $row->teacher->account->first_name.' '.$row->teacher->account->last_name
                         : 'N/A';
                 })
                 ->addColumn('student_name', function ($row) {
                     return $row->student
-                        ? $row->student->first_name . ' ' . $row->student->last_name
+                        ? $row->student->first_name.' '.$row->student->last_name
                         : 'N/A';
                 })
                 ->editColumn('session_date', function ($row) {
@@ -56,11 +54,12 @@ class SessionController extends Controller
                     return $row->time_out ? \Carbon\Carbon::parse($row->time_out)->format('h:i A') : '';
                 })
                 ->addColumn('action', function ($row) {
-                    $edit = '<a href="' . route('admin.sessions.edit', $row->id) . '" class="btn btn-sm btn-warning">Edit</a>';
-                    $delete = '<form action="' . route('admin.sessions.destroy', $row->id) . '" method="POST" style="display:inline;">'
-                        . csrf_field() . method_field("DELETE")
-                        . '<button type="submit" class="btn btn-sm btn-danger delete-btn">Delete</button></form>';
-                    return $edit . ' ' . $delete;
+                    $edit = '<a href="'.route('admin.sessions.edit', $row->id).'" class="btn btn-sm btn-warning">Edit</a>';
+                    $delete = '<form action="'.route('admin.sessions.destroy', $row->id).'" method="POST" style="display:inline;">'
+                        .csrf_field().method_field('DELETE')
+                        .'<button type="submit" class="btn btn-sm btn-danger delete-btn">Delete</button></form>';
+
+                    return $edit.' '.$delete;
                 })
                 ->rawColumns(['action'])
                 ->make(true);
@@ -85,15 +84,15 @@ class SessionController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'teacher_id'   => 'required|exists:teachers,id',
-            'student_id'   => 'required|exists:students,id',
+            'teacher_id' => 'required|exists:teachers,id',
+            'student_id' => 'required|exists:students,id',
             'session_date' => 'required|date',
-            'time_in'      => 'required|date_format:H:i',
-            'time_out'     => 'required|date_format:H:i|after:time_in',
-            'goal_ids'     => 'array', // multiple checkboxes
+            'time_in' => 'required|date_format:H:i',
+            'time_out' => 'required|date_format:H:i|after:time_in',
+            'goal_ids' => 'array', // multiple checkboxes
         ]);
         //  dd($request->goal_ids);
-        $time_in  = Carbon::createFromFormat('H:i', $request->time_in)->format('H:i:s');
+        $time_in = Carbon::createFromFormat('H:i', $request->time_in)->format('H:i:s');
         $time_out = Carbon::createFromFormat('H:i', $request->time_out)->format('H:i:s');
 
         // Ensure the session is within assignment period
@@ -103,7 +102,7 @@ class SessionController extends Controller
             ->where('end_date', '>=', $request->session_date)
             ->first();
 
-        if (!$assignment) {
+        if (! $assignment) {
             return back()->withErrors(['session_date' => 'Session date must be within assignment period.'])->withInput();
         }
 
@@ -123,20 +122,47 @@ class SessionController extends Controller
         if ($overlap) {
             return back()->withErrors(['time_in' => 'This session overlaps with another session.'])->withInput();
         }
+        $hours = Carbon::parse($time_out)->diffInMinutes(Carbon::parse($time_in)) / 60;
+
+    // ✅ Calculate already used DAILY hours
+    $dailyHours = Session::where('teacher_id', $request->teacher_id)
+        ->where('student_id', $request->student_id)
+        ->whereDate('session_date', $request->session_date)
+        ->sum(DB::raw('TIME_TO_SEC(TIMEDIFF(time_out, time_in)) / 3600'));
+
+    if ($dailyHours + $hours > $assignment->daily_mandate) {
+        return back()->withErrors([
+            'time_in' => "Daily mandate exceeded. You can only add " . round($assignment->daily_mandate - $dailyHours, 2) . " more hours for this day."
+        ])->withInput();
+    }
+
+    // ✅ Calculate already used WEEKLY hours (Mon–Sun)
+    $weekStart = Carbon::parse($request->session_date)->startOfWeek(Carbon::MONDAY);
+    $weekEnd   = Carbon::parse($request->session_date)->endOfWeek(Carbon::SUNDAY);
+
+    $weeklyHours = Session::where('teacher_id', $request->teacher_id)
+        ->where('student_id', $request->student_id)
+        ->whereBetween('session_date', [$weekStart, $weekEnd])
+        ->sum(DB::raw('TIME_TO_SEC(TIMEDIFF(time_out, time_in)) / 3600'));
+
+    if ($weeklyHours + $hours > $assignment->weekly_mandate) {
+        return back()->withErrors([
+            'time_in' => "Weekly mandate exceeded. You can only add " . round($assignment->weekly_mandate - $weeklyHours, 2) . " more hours this week."
+        ])->withInput();
+    }
 
         // ✅ Create session and store goal_ids in sessions table
         Session::create([
-            'teacher_id'   => $request->teacher_id,
-            'student_id'   => $request->student_id,
+            'teacher_id' => $request->teacher_id,
+            'student_id' => $request->student_id,
             'session_date' => $request->session_date,
-            'time_in'      => $time_in,
-            'time_out'     => $time_out,
-            'goal_ids'     => $request->goal_ids ?? [], // stored as JSON
+            'time_in' => $time_in,
+            'time_out' => $time_out,
+            'goal_ids' => $request->goal_ids ?? [], // stored as JSON
         ]);
 
         return redirect()->route('admin.sessions.index')->with('success', 'Session created successfully.');
     }
-
 
     public function edit(Session $session)
     {
@@ -150,17 +176,16 @@ class SessionController extends Controller
         return view('session.edit', compact('session', 'allGoals'));
     }
 
-
     public function update(Request $request, Session $session)
     {
         $request->validate([
             'session_date' => 'required|date',
-            'time_in'      => 'required|date_format:H:i',
-            'time_out'     => 'required|date_format:H:i|after:time_in',
-            'goal_ids'     => 'array',
+            'time_in' => 'required|date_format:H:i',
+            'time_out' => 'required|date_format:H:i|after:time_in',
+            'goal_ids' => 'array',
         ]);
 
-        $time_in  = Carbon::createFromFormat('H:i', $request->time_in)->format('H:i:s');
+        $time_in = Carbon::createFromFormat('H:i', $request->time_in)->format('H:i:s');
         $time_out = Carbon::createFromFormat('H:i', $request->time_out)->format('H:i:s');
 
         // Validate assignment period
@@ -170,9 +195,9 @@ class SessionController extends Controller
             ->where('end_date', '>=', $request->session_date)
             ->first();
 
-        if (!$assignment) {
+        if (! $assignment) {
             return back()->withErrors([
-                'session_date' => 'Session date must be within assignment period.'
+                'session_date' => 'Session date must be within assignment period.',
             ])->withInput();
         }
 
@@ -192,27 +217,57 @@ class SessionController extends Controller
 
         if ($overlap) {
             return back()->withErrors([
-                'time_in' => 'This session overlaps with another session.'
+                'time_in' => 'This session overlaps with another session.',
+            ])->withInput();
+        }
+
+        $hours = Carbon::parse($time_out)->diffInMinutes(Carbon::parse($time_in)) / 60;
+        $existingHours = Carbon::parse($session->time_out)->diffInMinutes(Carbon::parse($session->time_in)) / 60;
+
+        $dailyhours = Session::where('teacher_id', $session->teacher_id)
+            ->where('student_id', $session->student_id)
+            ->whereDate('session_date', $request->session_date)
+            ->where('id', '!=', $session->id)
+            ->sum(DB::raw('TIME_TO_SEC(TIMEDIFF(time_out, time_in))/3600'));
+
+        if ($dailyhours + $hours > $assignment->weekly_mandate) {
+            return back()->withErrors([
+                'time_in' => 'Weekly mandate exceeded. You can only add '.round($assignment->weekly_mandate - $dailyhours, 2).' more hours this week.',
+            ])->withInput();
+        }
+
+        $sessionDate = Carbon::parse($request->session_date);
+        $startOfWeek = $sessionDate->copy()->startOfWeek(Carbon::MONDAY);
+        $endOfWeek = $sessionDate->copy()->endOfWeek(Carbon::SUNDAY);
+
+        $weeklyHours = Session::where('teacher_id', $session->teacher_id)
+            ->where('student_id', $session->student_id)
+            ->whereBetween('session_date', [$startOfWeek, $endOfWeek])
+            ->where('id', '!=', $session->id)
+            ->sum(DB::raw('TIME_TO_SEC(TIMEDIFF(time_out, time_in))/3600'));
+
+        if ($weeklyHours + $hours > $assignment->weekly_mandate) {
+            return back()->withErrors([
+                'time_in' => 'Weekly mandate exceeded. You can only add '.round($assignment->weekly_mandate - $weeklyHours, 2).' more hours this week.',
             ])->withInput();
         }
 
         // ✅ Update session including goal_ids
         $session->update([
             'session_date' => $request->session_date,
-            'time_in'      => $time_in,
-            'time_out'     => $time_out,
-            'goal_ids'     => $request->goal_ids ?? [],
+            'time_in' => $time_in,
+            'time_out' => $time_out,
+            'goal_ids' => $request->goal_ids ?? [],
         ]);
 
         return redirect()->route('admin.sessions.index')
             ->with('success', 'Session updated successfully.');
     }
 
-
-
     public function destroy(Session $session)
     {
         $session->delete();
+
         return redirect()->route('admin.sessions.index')->with('success', 'Session deleted successfully.');
     }
 
@@ -220,12 +275,14 @@ class SessionController extends Controller
     {
         $studentIds = Assignment::where('teacher_id', $teacherId)->pluck('student_id')->unique();
         $students = Student::whereIn('id', $studentIds)->get(['id', 'first_name', 'last_name']);
+
         return response()->json($students);
     }
 
     public function getGoals()
     {
         $goals = \App\Models\StudentGoal::all();
+
         return response()->json($goals);
     }
     // public function teacherSession()
@@ -270,11 +327,11 @@ class SessionController extends Controller
         // Generate CSV
         $fileName = 'sessions.csv';
         $headers = [
-            "Content-type" => "text/csv",
-            "Content-Disposition" => "attachment; filename=$fileName",
-            "Pragma" => "no-cache",
-            "Cache-Control" => "must-revalidate, post-check=0, pre-check=0",
-            "Expires" => "0"
+            'Content-type' => 'text/csv',
+            'Content-Disposition' => "attachment; filename=$fileName",
+            'Pragma' => 'no-cache',
+            'Cache-Control' => 'must-revalidate, post-check=0, pre-check=0',
+            'Expires' => '0',
         ];
 
         $columns = ['ID', 'Teacher', 'Student', 'Date', 'Time In', 'Time Out'];
@@ -286,8 +343,8 @@ class SessionController extends Controller
             foreach ($sessions as $session) {
                 fputcsv($file, [
                     $session->id,
-                    $session->teacher?->account?->first_name . ' ' . $session->teacher?->account?->last_name,
-                    $session->student?->first_name . ' ' . $session->student?->last_name,
+                    $session->teacher?->account?->first_name.' '.$session->teacher?->account?->last_name,
+                    $session->student?->first_name.' '.$session->student?->last_name,
                     \Carbon\Carbon::parse($session->session_date)->format('d/m/Y'),
                     \Carbon\Carbon::parse($session->time_in)->format('H:i'),
                     \Carbon\Carbon::parse($session->time_out)->format('H:i'),
