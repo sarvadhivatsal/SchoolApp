@@ -16,6 +16,7 @@ class Session extends Model
         'time_in',
         'time_out',
         'goal_ids',
+        'session_rate',
     ];
     protected $casts = [
         'goal_ids' => 'array', // automatically cast JSON to array

@@ -62,6 +62,13 @@
                     </div>
                 </div>
 
+                {{-- Session Rate (calculated) --}}
+                <div class="mb-3">
+                    <label for="session_rate" class="form-label">Session Rate ($)</label>
+                    <input type="text" id="session_rate" class="form-control" readonly>
+                    <small class="text-muted">Calculated from teacher's hourly rate × session duration</small>
+                </div>
+
                 <button class="btn btn-success" type="submit">Create Session</button>
             </form>
         </div>
@@ -78,14 +85,38 @@ document.addEventListener('DOMContentLoaded', function () {
     const goalsContainer = document.getElementById('goals-container');
     const goalList = document.getElementById('goal-list');
 
+    let teacherHourlyRate = 0;
+
+    function calculateSessionRate() {
+        const timeIn = document.getElementById('time_in').value;
+        const timeOut = document.getElementById('time_out').value;
+        if (!timeIn || !timeOut || teacherHourlyRate <= 0) {
+            document.getElementById('session_rate').value = '';
+            return;
+        }
+
+        const start = new Date(`1970-01-01T${timeIn}:00`);
+        const end = new Date(`1970-01-01T${timeOut}:00`);
+        const diffHours = (end - start) / (1000 * 60 * 60);
+
+        if (diffHours > 0) {
+            document.getElementById('session_rate').value = (teacherHourlyRate * diffHours).toFixed(2);
+        } else {
+            document.getElementById('session_rate').value = '';
+        }
+    }
+
     teacherSelect.addEventListener('change', function () {
         const teacherId = this.value;
         studentSelect.innerHTML = '<option value="">Select Student</option>';
         goalList.innerHTML = '';
         goalsContainer.style.display = 'none';
+        teacherHourlyRate = 0;
+        document.getElementById('session_rate').value = '';
 
         if (!teacherId) return;
 
+        // Fetch students
         fetch(`${studentsBase}/${teacherId}`)
             .then(r => r.json())
             .then(data => {
@@ -95,6 +126,14 @@ document.addEventListener('DOMContentLoaded', function () {
                     opt.textContent = `${s.first_name} ${s.last_name}`;
                     studentSelect.appendChild(opt);
                 });
+            });
+
+        // Fetch teacher hourly rate
+        fetch(`/admin/teachers/${teacherId}/rate`)
+            .then(r => r.json())
+            .then(data => {
+                teacherHourlyRate = parseFloat(data.hourly_rate) || 0;
+                calculateSessionRate();
             });
     });
 
@@ -126,6 +165,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 goalsContainer.style.display = 'block';
             });
     });
+
+    document.getElementById('time_in').addEventListener('change', calculateSessionRate);
+    document.getElementById('time_out').addEventListener('change', calculateSessionRate);
 });
 </script>
 @endsection

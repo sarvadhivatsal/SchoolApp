@@ -15,10 +15,8 @@
         <a href="{{ route('admin.sessions.create') }}" class="btn btn-primary">Add New Session</a>
     </div>
     <div class="mb-3">
-    {{-- <a href="{{ route('admin.sessions.create') }}" class="btn btn-primary">Add New Session</a> --}}
-    <a href="{{ route('admin.sessions.export') }}" class="btn btn-success">Export CSV</a>
-</div>
-
+        <a href="{{ route('admin.sessions.export') }}" class="btn btn-success">Export CSV</a>
+    </div>
 
     <!-- Filters -->
     <div class="row mb-3">
@@ -63,6 +61,7 @@
                     <th>Date</th>
                     <th>Time In</th>
                     <th>Time Out</th>
+                    <th>Session Rate ($)</th> {{-- ✅ New column --}}
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -92,6 +91,7 @@ $(function () {
             { data: 'session_date', name: 'session_date' },
             { data: 'time_in', name: 'time_in' },
             { data: 'time_out', name: 'time_out' },
+            { data: 'session_rate', name: 'session_rate' }, // ✅ New column
             { data: 'action', name: 'action', orderable: false, searchable: false }
         ]
     });

@@ -75,6 +75,7 @@ public function dashboard(Request $request)
             'state'      => 'required|string|max:100',
             'zipcode'    => 'required|digits:6',
             'status'     => 'required|in:active,inactive',
+            'hourly_rate' => 'required|numeric|min:0',
         ]);
 
         // 1. Create Account
@@ -85,6 +86,7 @@ public function dashboard(Request $request)
             'password'   => bcrypt('123456'), // default password
             'role'       => 'teacher',
             'status'     => $validated['status'],
+            
         ]);
 
         // 2. Create Teacher and link with Account
@@ -97,6 +99,7 @@ public function dashboard(Request $request)
             'city'       => $validated['city'],
             'state'      => $validated['state'],
             'zipcode'    => $validated['zipcode'],
+            'hourly_rate' => $request->input('hourly_rate', 0),
         ]);
 
         return redirect()->route('teachers.index')->with('success', 'Teacher created successfully.');
@@ -126,6 +129,7 @@ public function dashboard(Request $request)
             'state'      => 'required|string|max:100',
             'zipcode'    => 'required|digits:6',
             'status'     => 'required|in:active,inactive',
+            'hourly_rate' => 'required|numeric|min:0',
         ]);
 
         // Update account fields
@@ -145,6 +149,7 @@ public function dashboard(Request $request)
             'city'       => $validated['city'],
             'state'      => $validated['state'],
             'zipcode'    => $validated['zipcode'],
+            'hourly_rate' => $request->input('hourly_rate', $teacher->hourly_rate),
         ]);
 
         return redirect()->route('teachers.index')->with('success', 'Teacher updated successfully.');
@@ -163,6 +168,7 @@ public function getTeachers(Request $request)
 
         return DataTables::of($data)
             ->addIndexColumn()
+             ->setRowId('id')
             ->addColumn('teacher_name', function($row){
                 return $row->account 
                     ? $row->account->first_name . ' ' . $row->account->last_name 
@@ -340,6 +346,35 @@ public function storeSession(Request $request)
         'goal_ids'      => 'array', // ✅ allow multiple goal checkboxes
     ]);
 
+
+
+   $sessionDate = \Carbon\Carbon::parse($validated['session_date']);
+
+    // ❌ Prevent future sessions
+    if ($sessionDate->isFuture()) {
+        return redirect()->back()
+            ->withErrors(['session_date' => 'You cannot add a session for a future date.'])
+            ->withInput();
+    }
+
+    // ✅ Check assignment period
+    $assignment = Assignment::where('student_id', $validated['student_id'])
+        ->where('teacher_id', $teacher->id)
+        ->first();
+
+    if ($assignment) {
+        $start = \Carbon\Carbon::parse($assignment->start_date);
+        $end   = \Carbon\Carbon::parse($assignment->end_date);
+
+        if ($sessionDate->lt($start) || $sessionDate->gt($end)) {
+            return redirect()->back()
+                ->withErrors(['session_date' => "Session date must be between {$start->format('d-m-Y')} and {$end->format('d-m-Y')}."])
+                ->withInput();
+        }
+    }
+
+
+
     // Check overlap (as you already have)
     $overlap = Session::where('student_id', $validated['student_id'])
         ->where('session_date', $validated['session_date'])
@@ -394,7 +429,8 @@ public function editSession($id)
 
 
 // Update session
-public function updateSession(Request $request, $id) {
+public function updateSession(Request $request, $id)
+{
     $teacher = auth('teacher')->user()->teacherProfile;
     $session = Session::findOrFail($id);
 
@@ -403,16 +439,71 @@ public function updateSession(Request $request, $id) {
     }
 
     $validated = $request->validate([
-        'student_id' => 'required|exists:students,id',
+        'student_id'   => 'required|exists:students,id',
         'session_date' => 'required|date',
-        'time_in' => 'required',
-        'time_out' => 'required|after:time_in',
+        'time_in'      => 'required',
+        'time_out'     => 'required|after:time_in',
+        'goal_ids'     => 'array',
     ]);
 
-    $session->update($validated);
+    $sessionDate = \Carbon\Carbon::parse($validated['session_date']);
 
-    return redirect()->route('teacher.dashboard', ['section'=>'sessions'])->with('success', 'Session updated successfully.');
+    // ❌ Prevent future sessions
+    if ($sessionDate->isFuture()) {
+        return redirect()->back()
+            ->withErrors(['session_date' => 'You cannot set a session for a future date.'])
+            ->withInput();
+    }
+
+    // ✅ Check assignment period
+    $assignment = Assignment::where('student_id', $validated['student_id'])
+        ->where('teacher_id', $teacher->id)
+        ->first();
+
+    if ($assignment) {
+        $start = \Carbon\Carbon::parse($assignment->start_date);
+        $end   = \Carbon\Carbon::parse($assignment->end_date);
+
+        if ($sessionDate->lt($start) || $sessionDate->gt($end)) {
+            return redirect()->back()
+                ->withErrors(['session_date' => "Session date must be between {$start->format('d-m-Y')} and {$end->format('d-m-Y')}."])
+                ->withInput();
+        }
+    }
+
+    // ✅ Check overlap (exclude current session)
+    $overlap = Session::where('student_id', $validated['student_id'])
+        ->where('session_date', $validated['session_date'])
+        ->where('id', '!=', $session->id)
+        ->where(function($q) use ($validated) {
+            $q->whereBetween('time_in', [$validated['time_in'], $validated['time_out']])
+              ->orWhereBetween('time_out', [$validated['time_in'], $validated['time_out']])
+              ->orWhere(function($q2) use ($validated) {
+                  $q2->where('time_in', '<=', $validated['time_in'])
+                     ->where('time_out', '>=', $validated['time_out']);
+              });
+        })
+        ->exists();
+
+    if ($overlap) {
+        return redirect()->back()
+            ->withErrors(['time_in' => 'This session overlaps with another session for this student.'])
+            ->withInput();
+    }
+
+    // ✅ Update
+    $session->update([
+        'student_id'   => $validated['student_id'],
+        'session_date' => $validated['session_date'],
+        'time_in'      => $validated['time_in'],
+        'time_out'     => $validated['time_out'],
+        'goal_ids'     => $validated['goal_ids'] ?? [],
+    ]);
+
+    return redirect()->route('teacher.dashboard', ['section'=>'sessions'])
+                     ->with('success', 'Session updated successfully.');
 }
+
 
 // Delete session
 public function deleteSession($id) {
@@ -427,9 +518,5 @@ public function deleteSession($id) {
 
     return redirect()->route('teacher.dashboard', ['section'=>'sessions'])->with('success', 'Session deleted successfully.');
 }
-
-
-
-
 
 }

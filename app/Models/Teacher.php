@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 class Teacher extends Model
 {
     protected $fillable = [
-        'account_id','dob','phone','gender','address','city','state','zipcode'
+        'account_id','dob','phone','gender','address','city','state','zipcode','hourly_rate'
     ];
 
     public function account() {

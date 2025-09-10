@@ -30,7 +30,7 @@
                         </div>
                     @endif
 
-                    <form id="editStudentForm" method="POST" action="{{ route('students.update', $student->id) }}">
+                    <form method="POST" action="{{ route('students.update', $student->id) }}">
                         @csrf
                         @method('PUT')
 
@@ -111,39 +111,21 @@
                             </select>
                         </div>
 
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label>Daily Mandate (hours)</label>
+                                <input type="number" step="0.25" name="daily_mandate" value="{{ old('daily_mandate', $student->daily_mandate) }}" class="form-control">
+                            </div>
+                            <div class="col-md-6">
+                                <label>Weekly Mandate (hours)</label>
+                                <input type="number" step="0.25" name="weekly_mandate" value="{{ old('weekly_mandate', $student->weekly_mandate) }}" class="form-control">
+                            </div>
+                        </div>
+
                         <button type="submit" class="btn btn-primary">Update Student</button>
+                        <a href="{{ route('students.index') }}" class="btn btn-secondary">Back</a>
                     </form>
 
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- All Students DataTable -->
-    <div class="row mt-4">
-        <div class="col-md-12">
-            <div class="card shadow">
-                <div class="card-body">
-                    <h4>All Students</h4>
-                    <div class="table-responsive">
-                        <table class="table table-bordered table-striped" id="students-table">
-                            <thead>
-                                <tr>
-                                    <th>ID</th>
-                                    <th>Name</th>
-                                    <th>Parent Email</th>
-                                    <th>Parent Phone</th>
-                                    <th>DOB</th>
-                                    <th>Gender</th>
-                                    <th>Status</th>
-                                    <th>City</th>
-                                    <th>State</th>
-                                    <th>Teacher</th>
-                                    <th>Action</th>
-                                </tr>
-                            </thead>
-                        </table>
-                    </div>
                 </div>
             </div>
         </div>
@@ -152,66 +134,105 @@
 </div>
 @endsection
 
+
 @push('scripts')
-<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 
-<script>
-$.ajaxSetup({ headers: { 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content') } });
-
-$(document).ready(function () {
-
-    // Initialize DataTable with all fields
-    var table = $('#students-table').DataTable({
-        processing: true,
-        serverSide: true,
-        ajax: "{{ route('admin.students.data') }}",
-        columns: [
-            { data: 'id' },
-            { data: null, render: data => data.first_name + ' ' + data.last_name },
-            { data: 'parent_email' },
-            { data: 'parent_phone' },
-            { data: 'dob' },
-            { data: 'gender' },
-            { data: 'status' },
-            { data: 'city' },
-            { data: 'state' },
-            { data: 'teacher_name' },
-            { data: 'action', orderable:false, searchable:false }
-        ]
-    });
-
-    // Delete confirmation
-    $('#students-table').on('click', '.delete-btn', function(e){
-        e.preventDefault();
-        var form = $(this).closest('form');
-        if(confirm('Are you sure you want to delete this student?')) {
-            form.submit();
-        }
-    });
-
-    // AJAX submit for edit form
-    $('#editStudentForm').on('submit', function(e){
-        e.preventDefault();
-        let formData = $(this).serialize();
-
-        $.ajax({
-            url: $(this).attr('action'),
-            type: 'POST',
-            data: formData,
-            success: function(response){
-                $('#alertBox').html('<div class="alert alert-success">Student updated successfully!</div>');
-                table.ajax.reload();
-            },
-            error: function(xhr){
-                let errors = xhr.responseJSON?.errors || {};
-                let errorHtml = '<div class="alert alert-danger"><ul>';
-                $.each(errors, function(key, value){ errorHtml += '<li>'+ value[0] +'</li>'; });
-                errorHtml += '</ul></div>';
-                $('#alertBox').html(errorHtml);
+    <script>
+        $.ajaxSetup({
+            headers: {
+                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
             }
         });
-    });
 
-});
-</script>
+        $(document).ready(function() {
+
+            // Initialize DataTable with all fields
+            var table = $('#students-table').DataTable({
+                processing: true,
+                serverSide: true,
+                ajax: "{{ route('admin.students.data') }}",
+                columns: [{
+                        data: 'id'
+                    },
+                    {
+                        data: null,
+                        render: data => data.first_name + ' ' + data.last_name
+                    },
+                    {
+                        data: 'parent_email'
+                    },
+                    {
+                        data: 'parent_phone'
+                    },
+                    {
+                        data: 'dob'
+                    },
+                    {
+                        data: 'gender'
+                    },
+                    {
+                        data: 'status'
+                    },
+                    {
+                        data: 'city'
+                    },
+                    {
+                        data: 'state'
+                    },
+                    {
+                        data: 'teacher_name'
+                    },
+                    {
+                        data: 'daily_mandate'
+                    },
+                    {
+                        data: 'weekly_mandate'
+                    },
+                    {
+                        data: 'action',
+                        orderable: false,
+                        searchable: false
+                    }
+                ]
+            });
+
+            // Delete confirmation
+            $('#students-table').on('click', '.delete-btn', function(e) {
+                e.preventDefault();
+                var form = $(this).closest('form');
+                if (confirm('Are you sure you want to delete this student?')) {
+                    form.submit();
+                }
+            });
+
+            // AJAX submit for edit form
+            $('#editStudentForm').on('submit', function(e) {
+                e.preventDefault();
+                let formData = $(this).serialize();
+
+                $.ajax({
+                    url: $(this).attr('action'),
+                    type: 'POST',
+                    data: formData,
+                    success: function(response) {
+                        $('#alertBox').html(
+                            '<div class="alert alert-success">Student updated successfully!</div>'
+                        );
+                        table.ajax.reload();
+                    },
+                    error: function(xhr) {
+                        let errors = xhr.responseJSON?.errors || {};
+                        let errorHtml = '<div class="alert alert-danger"><ul>';
+                        $.each(errors, function(key, value) {
+                            errorHtml += '<li>' + value[0] + '</li>';
+                        });
+                        errorHtml += '</ul></div>';
+                        $('#alertBox').html(errorHtml);
+                    }
+                });
+            });
+
+        });
+    </script>
 @endpush

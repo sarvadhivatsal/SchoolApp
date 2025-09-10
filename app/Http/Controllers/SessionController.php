@@ -19,40 +19,29 @@ class SessionController extends Controller
         if ($request->ajax()) {
             $query = Session::with(['teacher.account', 'student'])->select('sessions.*');
 
-            // ✅ Apply filters
             if ($request->filled('teacher_id')) {
                 $query->where('teacher_id', $request->teacher_id);
             }
-
             if ($request->filled('student_id')) {
                 $query->where('student_id', $request->student_id);
             }
-
             if ($request->filled('session_date')) {
                 $query->whereDate('session_date', $request->session_date);
             }
 
             return DataTables::of($query)
                 ->addIndexColumn()
-                ->addColumn('teacher_name', function ($row) {
-                    return $row->teacher && $row->teacher->account
+                ->addColumn('teacher_name', fn ($row) => $row->teacher && $row->teacher->account
                         ? $row->teacher->account->first_name.' '.$row->teacher->account->last_name
-                        : 'N/A';
-                })
-                ->addColumn('student_name', function ($row) {
-                    return $row->student
+                        : 'N/A'
+                )
+                ->addColumn('student_name', fn ($row) => $row->student
                         ? $row->student->first_name.' '.$row->student->last_name
-                        : 'N/A';
-                })
-                ->editColumn('session_date', function ($row) {
-                    return \Carbon\Carbon::parse($row->session_date)->format('d M Y');
-                })
-                ->editColumn('time_in', function ($row) {
-                    return $row->time_in ? \Carbon\Carbon::parse($row->time_in)->format('h:i A') : '';
-                })
-                ->editColumn('time_out', function ($row) {
-                    return $row->time_out ? \Carbon\Carbon::parse($row->time_out)->format('h:i A') : '';
-                })
+                        : 'N/A'
+                )
+                ->editColumn('session_date', fn ($row) => Carbon::parse($row->session_date)->format('d M Y'))
+                ->editColumn('time_in', fn ($row) => $row->time_in ? Carbon::parse($row->time_in)->format('h:i A') : '')
+                ->editColumn('time_out', fn ($row) => $row->time_out ? Carbon::parse($row->time_out)->format('h:i A') : '')
                 ->addColumn('action', function ($row) {
                     $edit = '<a href="'.route('admin.sessions.edit', $row->id).'" class="btn btn-sm btn-warning">Edit</a>';
                     $delete = '<form action="'.route('admin.sessions.destroy', $row->id).'" method="POST" style="display:inline;">'
@@ -65,7 +54,6 @@ class SessionController extends Controller
                 ->make(true);
         }
 
-        // Pass filters to blade
         $teachers = Teacher::with('account')->get();
         $students = Student::all();
 
@@ -74,7 +62,6 @@ class SessionController extends Controller
 
     public function create()
     {
-        // Get teachers that actually have assignments
         $teacherIds = Assignment::pluck('teacher_id')->unique();
         $teachers = Teacher::with('account')->whereIn('id', $teacherIds)->get();
 
@@ -82,93 +69,100 @@ class SessionController extends Controller
     }
 
     public function store(Request $request)
-    {
-        $request->validate([
-            'teacher_id' => 'required|exists:teachers,id',
-            'student_id' => 'required|exists:students,id',
-            'session_date' => 'required|date',
-            'time_in' => 'required|date_format:H:i',
-            'time_out' => 'required|date_format:H:i|after:time_in',
-            'goal_ids' => 'array', // multiple checkboxes
-        ]);
-        //  dd($request->goal_ids);
-        $time_in = Carbon::createFromFormat('H:i', $request->time_in)->format('H:i:s');
-        $time_out = Carbon::createFromFormat('H:i', $request->time_out)->format('H:i:s');
+{
+    $request->validate([
+        'teacher_id' => 'required|exists:teachers,id',
+        'student_id' => 'required|exists:students,id',
+        'session_date' => 'required|date',
+        'time_in' => 'required|date_format:H:i',
+        'time_out' => 'required|date_format:H:i|after:time_in',
+        'goal_ids' => 'array',
+    ]);
 
-        // Ensure the session is within assignment period
-        $assignment = Assignment::where('teacher_id', $request->teacher_id)
-            ->where('student_id', $request->student_id)
-            ->where('start_date', '<=', $request->session_date)
-            ->where('end_date', '>=', $request->session_date)
-            ->first();
+    $timeIn = Carbon::parse($request->time_in);
+    $timeOut = Carbon::parse($request->time_out);
+    $durationHours = $timeOut->floatDiffInHours($timeIn);
 
-        if (! $assignment) {
-            return back()->withErrors(['session_date' => 'Session date must be within assignment period.'])->withInput();
-        }
+    $teacher = Teacher::findOrFail($request->teacher_id);
+    $student = Student::findOrFail($request->student_id);
+    $sessionRate = $teacher->hourly_rate * $durationHours;
 
-        // Overlap check
-        $overlap = Session::where('teacher_id', $request->teacher_id)
-            ->where('session_date', $request->session_date)
-            ->where(function ($query) use ($time_in, $time_out) {
-                $query->whereBetween('time_in', [$time_in, $time_out])
-                    ->orWhereBetween('time_out', [$time_in, $time_out])
-                    ->orWhere(function ($q) use ($time_in, $time_out) {
-                        $q->where('time_in', '<=', $time_in)
-                            ->where('time_out', '>=', $time_out);
-                    });
-            })
-            ->exists();
+    // Validate assignment period
+    $assignment = Assignment::where('teacher_id', $request->teacher_id)
+        ->where('student_id', $request->student_id)
+        ->where('start_date', '<=', $request->session_date)
+        ->where('end_date', '>=', $request->session_date)
+        ->first();
 
-        if ($overlap) {
-            return back()->withErrors(['time_in' => 'This session overlaps with another session.'])->withInput();
-        }
-        $hours = Carbon::parse($time_out)->diffInMinutes(Carbon::parse($time_in)) / 60;
+    if (! $assignment) {
+        return back()->withErrors(['session_date' => 'Session date must be within assignment period.'])->withInput();
+    }
 
-    // ✅ Calculate already used DAILY hours
-    $dailyHours = Session::where('teacher_id', $request->teacher_id)
+    // Daily mandate checks
+    $dailyHoursAssignment = Session::where('teacher_id', $request->teacher_id)
         ->where('student_id', $request->student_id)
         ->whereDate('session_date', $request->session_date)
         ->sum(DB::raw('TIME_TO_SEC(TIMEDIFF(time_out, time_in)) / 3600'));
 
-    if ($dailyHours + $hours > $assignment->daily_mandate) {
+    $dailyHoursStudent = Session::where('student_id', $request->student_id)
+        ->whereDate('session_date', $request->session_date)
+        ->sum(DB::raw('TIME_TO_SEC(TIMEDIFF(time_out, time_in)) / 3600'));
+
+    if ($dailyHoursAssignment + $durationHours > $assignment->daily_mandate) {
         return back()->withErrors([
-            'time_in' => "Daily mandate exceeded. You can only add " . round($assignment->daily_mandate - $dailyHours, 2) . " more hours for this day."
+            'time_in' => 'Daily mandate exceeded for this assignment. Max available: '.round($assignment->daily_mandate - $dailyHoursAssignment, 2).' hours.',
         ])->withInput();
     }
 
-    // ✅ Calculate already used WEEKLY hours (Mon–Sun)
-    $weekStart = Carbon::parse($request->session_date)->startOfWeek(Carbon::MONDAY);
-    $weekEnd   = Carbon::parse($request->session_date)->endOfWeek(Carbon::SUNDAY);
+    if ($dailyHoursStudent + $durationHours > $student->daily_mandate) {
+        return back()->withErrors([
+            'time_in' => 'Daily mandate exceeded for this student. Max available: '.round($student->daily_mandate - $dailyHoursStudent, 2).' hours.',
+        ])->withInput();
+    }
 
-    $weeklyHours = Session::where('teacher_id', $request->teacher_id)
+    // Weekly mandate checks
+    $weekStart = Carbon::parse($request->session_date)->startOfWeek(Carbon::MONDAY);
+    $weekEnd = Carbon::parse($request->session_date)->endOfWeek(Carbon::SUNDAY);
+
+    $weeklyHoursAssignment = Session::where('teacher_id', $request->teacher_id)
         ->where('student_id', $request->student_id)
         ->whereBetween('session_date', [$weekStart, $weekEnd])
         ->sum(DB::raw('TIME_TO_SEC(TIMEDIFF(time_out, time_in)) / 3600'));
 
-    if ($weeklyHours + $hours > $assignment->weekly_mandate) {
+    $weeklyHoursStudent = Session::where('student_id', $request->student_id)
+        ->whereBetween('session_date', [$weekStart, $weekEnd])
+        ->sum(DB::raw('TIME_TO_SEC(TIMEDIFF(time_out, time_in)) / 3600'));
+
+    if ($weeklyHoursAssignment + $durationHours > $assignment->weekly_mandate) {
         return back()->withErrors([
-            'time_in' => "Weekly mandate exceeded. You can only add " . round($assignment->weekly_mandate - $weeklyHours, 2) . " more hours this week."
+            'time_in' => 'Weekly mandate exceeded for this assignment. Max available: '.round($assignment->weekly_mandate - $weeklyHoursAssignment, 2).' hours.',
         ])->withInput();
     }
 
-        // ✅ Create session and store goal_ids in sessions table
-        Session::create([
-            'teacher_id' => $request->teacher_id,
-            'student_id' => $request->student_id,
-            'session_date' => $request->session_date,
-            'time_in' => $time_in,
-            'time_out' => $time_out,
-            'goal_ids' => $request->goal_ids ?? [], // stored as JSON
-        ]);
-
-        return redirect()->route('admin.sessions.index')->with('success', 'Session created successfully.');
+    if ($weeklyHoursStudent + $durationHours > $student->weekly_mandate) {
+        return back()->withErrors([
+            'time_in' => 'Weekly mandate exceeded for this student. Max available: '.round($student->weekly_mandate - $weeklyHoursStudent, 2).' hours.',
+        ])->withInput();
     }
+
+    // Create session
+    Session::create([
+        'teacher_id' => $request->teacher_id,
+        'student_id' => $request->student_id,
+        'session_date' => $request->session_date,
+        'time_in' => $timeIn->format('H:i:s'),
+        'time_out' => $timeOut->format('H:i:s'),
+        'goal_ids' => $request->goal_ids ?? [],
+        'session_rate' => $sessionRate,
+    ]);
+
+    return redirect()->route('admin.sessions.index')->with('success', 'Session created successfully.');
+}
+
 
     public function edit(Session $session)
     {
-        // Load teacher + student with relationships
         $session->load(['teacher.account', 'student']);
-
         $allGoals = StudentGoal::select('id', 'short_term_goal', 'long_term_goal')
             ->orderBy('id')
             ->get();
@@ -177,92 +171,86 @@ class SessionController extends Controller
     }
 
     public function update(Request $request, Session $session)
-    {
-        $request->validate([
-            'session_date' => 'required|date',
-            'time_in' => 'required|date_format:H:i',
-            'time_out' => 'required|date_format:H:i|after:time_in',
-            'goal_ids' => 'array',
-        ]);
+{
+    $request->validate([
+        'session_date' => 'required|date',
+        'time_in' => 'required|date_format:H:i',
+        'time_out' => 'required|date_format:H:i|after:time_in',
+        'goal_ids' => 'array',
+    ]);
 
-        $time_in = Carbon::createFromFormat('H:i', $request->time_in)->format('H:i:s');
-        $time_out = Carbon::createFromFormat('H:i', $request->time_out)->format('H:i:s');
+    $timeIn = Carbon::parse($request->time_in);
+    $timeOut = Carbon::parse($request->time_out);
+    $durationHours = $timeOut->floatDiffInHours($timeIn);
 
-        // Validate assignment period
-        $assignment = Assignment::where('teacher_id', $session->teacher_id)
-            ->where('student_id', $session->student_id)
-            ->where('start_date', '<=', $request->session_date)
-            ->where('end_date', '>=', $request->session_date)
-            ->first();
+    $teacher = $session->teacher; // use existing teacher
+    $sessionRate = $teacher->hourly_rate * $durationHours;
 
-        if (! $assignment) {
-            return back()->withErrors([
-                'session_date' => 'Session date must be within assignment period.',
-            ])->withInput();
-        }
+    $time_in = $timeIn->format('H:i:s');
+    $time_out = $timeOut->format('H:i:s');
 
-        // Overlap check
-        $overlap = Session::where('teacher_id', $session->teacher_id)
-            ->where('session_date', $request->session_date)
-            ->where('id', '!=', $session->id)
-            ->where(function ($query) use ($time_in, $time_out) {
-                $query->whereBetween('time_in', [$time_in, $time_out])
-                    ->orWhereBetween('time_out', [$time_in, $time_out])
-                    ->orWhere(function ($q) use ($time_in, $time_out) {
-                        $q->where('time_in', '<=', $time_in)
-                            ->where('time_out', '>=', $time_out);
-                    });
-            })
-            ->exists();
+    // ✅ Check for overlapping sessions
+    $overlap = Session::where('teacher_id', $session->teacher_id)
+        ->where('student_id', $session->student_id)
+        ->where('id', '!=', $session->id)
+        ->where('session_date', $request->session_date)
+        ->where(function ($query) use ($time_in, $time_out) {
+            $query->whereBetween('time_in', [$time_in, $time_out])
+                ->orWhereBetween('time_out', [$time_in, $time_out])
+                ->orWhere(function ($q) use ($time_in, $time_out) {
+                    $q->where('time_in', '<=', $time_in)
+                      ->where('time_out', '>=', $time_out);
+                });
+        })
+        ->exists();
 
-        if ($overlap) {
-            return back()->withErrors([
-                'time_in' => 'This session overlaps with another session.',
-            ])->withInput();
-        }
-
-        $hours = Carbon::parse($time_out)->diffInMinutes(Carbon::parse($time_in)) / 60;
-        $existingHours = Carbon::parse($session->time_out)->diffInMinutes(Carbon::parse($session->time_in)) / 60;
-
-        $dailyhours = Session::where('teacher_id', $session->teacher_id)
-            ->where('student_id', $session->student_id)
-            ->whereDate('session_date', $request->session_date)
-            ->where('id', '!=', $session->id)
-            ->sum(DB::raw('TIME_TO_SEC(TIMEDIFF(time_out, time_in))/3600'));
-
-        if ($dailyhours + $hours > $assignment->weekly_mandate) {
-            return back()->withErrors([
-                'time_in' => 'Weekly mandate exceeded. You can only add '.round($assignment->weekly_mandate - $dailyhours, 2).' more hours this week.',
-            ])->withInput();
-        }
-
-        $sessionDate = Carbon::parse($request->session_date);
-        $startOfWeek = $sessionDate->copy()->startOfWeek(Carbon::MONDAY);
-        $endOfWeek = $sessionDate->copy()->endOfWeek(Carbon::SUNDAY);
-
-        $weeklyHours = Session::where('teacher_id', $session->teacher_id)
-            ->where('student_id', $session->student_id)
-            ->whereBetween('session_date', [$startOfWeek, $endOfWeek])
-            ->where('id', '!=', $session->id)
-            ->sum(DB::raw('TIME_TO_SEC(TIMEDIFF(time_out, time_in))/3600'));
-
-        if ($weeklyHours + $hours > $assignment->weekly_mandate) {
-            return back()->withErrors([
-                'time_in' => 'Weekly mandate exceeded. You can only add '.round($assignment->weekly_mandate - $weeklyHours, 2).' more hours this week.',
-            ])->withInput();
-        }
-
-        // ✅ Update session including goal_ids
-        $session->update([
-            'session_date' => $request->session_date,
-            'time_in' => $time_in,
-            'time_out' => $time_out,
-            'goal_ids' => $request->goal_ids ?? [],
-        ]);
-
-        return redirect()->route('admin.sessions.index')
-            ->with('success', 'Session updated successfully.');
+    if ($overlap) {
+        return back()->withErrors([
+            'time_in' => 'This session overlaps with another session.',
+        ])->withInput();
     }
+
+    // ✅ Student DAILY mandate check (exclude current session)
+    $dailyHours = Session::where('student_id', $session->student_id)
+        ->whereDate('session_date', $request->session_date)
+        ->where('id', '!=', $session->id)
+        ->sum(DB::raw('TIME_TO_SEC(TIMEDIFF(time_out, time_in)) / 3600'));
+
+    $student = $session->student;
+    if ($dailyHours + $durationHours > $student->daily_mandate) {
+        return back()->withErrors([
+            'time_in' => "Student's daily mandate exceeded. Only ".round($student->daily_mandate - $dailyHours, 2).' hours can be added today.',
+        ])->withInput();
+    }
+
+    // ✅ Student WEEKLY mandate check (Mon–Sun)
+    $weekStart = Carbon::parse($request->session_date)->startOfWeek(Carbon::MONDAY);
+    $weekEnd = Carbon::parse($request->session_date)->endOfWeek(Carbon::SUNDAY);
+
+    $weeklyHours = Session::where('student_id', $session->student_id)
+        ->whereBetween('session_date', [$weekStart, $weekEnd])
+        ->where('id', '!=', $session->id)
+        ->sum(DB::raw('TIME_TO_SEC(TIMEDIFF(time_out, time_in)) / 3600'));
+
+    if ($weeklyHours + $durationHours > $student->weekly_mandate) {
+        return back()->withErrors([
+            'time_in' => "Student's weekly mandate exceeded. Only ".round($student->weekly_mandate - $weeklyHours, 2).' hours can be added this week.',
+        ])->withInput();
+    }
+
+    // ✅ Update session
+    $session->update([
+        'session_date' => $request->session_date,
+        'time_in' => $time_in,
+        'time_out' => $time_out,
+        'goal_ids' => $request->goal_ids ?? [],
+        'session_rate' => $sessionRate, // use calculated rate
+    ]);
+
+    return redirect()->route('admin.sessions.index')
+        ->with('success', 'Session updated successfully.');
+}
+
 
     public function destroy(Session $session)
     {
@@ -281,37 +269,15 @@ class SessionController extends Controller
 
     public function getGoals()
     {
-        $goals = \App\Models\StudentGoal::all();
+        $goals = StudentGoal::all();
 
         return response()->json($goals);
     }
-    // public function teacherSession()
-    // {
-    //     $teacherId = auth('teacher')->id();
-
-    //     // Get students assigned to this teacher
-    //     $studentIds = Assignment::where('teacher_id', $teacherId)
-    //                             ->pluck('student_id')
-    //                             ->unique();
-
-    //     $students = Student::whereIn('id', $studentIds)
-    //                        ->select('id','first_name','last_name')
-    //                        ->get(); // ✅ This is a Collection
-
-    //     // Get all goals
-    //     $allGoals = StudentGoal::select('id','short_term_goal','long_term_goal')->get(); // ✅ Collection
-
-    //     // Pass as array
-    //     return view('session.teacher_session', [
-    //         'students' => $students,
-    //         'allGoals' => $allGoals,
-    //     ]);
 
     public function export(Request $request)
     {
         $query = Session::with(['teacher.account', 'student']);
 
-        // Apply filters
         if ($request->teacher_id) {
             $query->where('teacher_id', $request->teacher_id);
         }
@@ -324,7 +290,6 @@ class SessionController extends Controller
 
         $sessions = $query->get();
 
-        // Generate CSV
         $fileName = 'sessions.csv';
         $headers = [
             'Content-type' => 'text/csv',
@@ -345,9 +310,9 @@ class SessionController extends Controller
                     $session->id,
                     $session->teacher?->account?->first_name.' '.$session->teacher?->account?->last_name,
                     $session->student?->first_name.' '.$session->student?->last_name,
-                    \Carbon\Carbon::parse($session->session_date)->format('d/m/Y'),
-                    \Carbon\Carbon::parse($session->time_in)->format('H:i'),
-                    \Carbon\Carbon::parse($session->time_out)->format('H:i'),
+                    Carbon::parse($session->session_date)->format('d/m/Y'),
+                    Carbon::parse($session->time_in)->format('H:i'),
+                    Carbon::parse($session->time_out)->format('H:i'),
                 ]);
             }
 
