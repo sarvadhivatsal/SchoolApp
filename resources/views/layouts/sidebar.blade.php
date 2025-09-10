@@ -26,7 +26,8 @@
 
     <!-- Teachers Dropdown -->
     <li class="nav-item">
-        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseTeachers" aria-expanded="false" aria-controls="collapseTeachers">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseTeachers"
+            aria-expanded="false" aria-controls="collapseTeachers">
             <i class="fas fa-chalkboard-teacher"></i>
             <span>Teachers</span>
         </a>
@@ -36,18 +37,19 @@
                 <a class="collapse-item" href="{{ route('teachers.index') }}">All Teachers</a>
             </div>
         </div>
-        <li class="nav-item">
-             <a class="nav-link" href="{{ route('admin.sessions.index') }}">
+    <li class="nav-item">
+        <a class="nav-link" href="{{ route('admin.sessions.index') }}">
             <i class="fas fa-clock"></i>
-             <span>Sessions</span>
-              </a>
-            </li>
+            <span>Sessions</span>
+        </a>
+    </li>
 
     </li>
 
     <!-- Students Dropdown -->
     <li class="nav-item">
-        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseStudents" aria-expanded="false" aria-controls="collapseStudents">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseStudents"
+            aria-expanded="false" aria-controls="collapseStudents">
             <i class="fas fa-user-graduate"></i>
             <span>Students</span>
         </a>
@@ -61,22 +63,29 @@
     </li>
 
     <!-- Assignments -->
-   <!-- Assignments Dropdown -->
-<li class="nav-item">
-    <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseAssignments"
-        aria-expanded="false" aria-controls="collapseAssignments">
-        <i class="fas fa-book"></i>
-        <span>Assignments</span>
-    </a>
-    <div id="collapseAssignments" class="collapse" aria-labelledby="headingAssignments"
-        data-parent="#accordionSidebar">
-        <div class="bg-white py-2 collapse-inner rounded">
-            <a class="collapse-item" href="{{ route('admin.assignments.index') }}">All Assignments</a>
-            <a class="collapse-item" href="{{ route('admin.assignments.create') }}">Add Assignment</a>
+    <!-- Assignments Dropdown -->
+    <li class="nav-item">
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseAssignments"
+            aria-expanded="false" aria-controls="collapseAssignments">
+            <i class="fas fa-book"></i>
+            <span>Assignments</span>
+        </a>
+        <div id="collapseAssignments" class="collapse" aria-labelledby="headingAssignments"
+            data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+                <a class="collapse-item" href="{{ route('admin.assignments.index') }}">All Assignments</a>
+                <a class="collapse-item" href="{{ route('admin.assignments.create') }}">Add Assignment</a>
+            </div>
         </div>
-    </div>
-</li>
+    </li>
 
+    <!-- Payroll -->
+    <li class="nav-item">
+        <a class="nav-link" href="{{ route('admin.payroll.index') }}">
+            <i class="fas fa-money-check-alt"></i>
+            <span>Payroll</span>
+        </a>
+    </li>
 
     <!-- Divider -->
     <hr class="sidebar-divider d-none d-md-block">

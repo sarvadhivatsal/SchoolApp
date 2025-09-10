@@ -8,6 +8,7 @@ use App\Http\Controllers\StudentController;
 use App\Http\Controllers\AssignmentController;
 use App\Http\Controllers\SessionController;
 use App\Http\Controllers\StudentGoalController;
+use App\Http\Controllers\PayrollController;
 
 // ------------------ Public Routes ------------------
 Route::get('/', function () {
@@ -90,6 +91,9 @@ Route::middleware(['admin'])->prefix('admin')->group(function () {
     Route::delete('/student_goals/{id}/delete', [StudentGoalController::class, 'destroy'])->name('student_goals.destroy');
 
     Route::get('/admin/sessions/get-goals/{studentId}', [SessionController::class, 'getGoals']);
+
+   Route::get('/admin/payroll', [PayrollController::class, 'index'])->name('admin.payroll.index');
+Route::post('/admin/payroll/refresh/{session}', [PayrollController::class, 'refreshRate'])->name('admin.payroll.refresh');
 });
 
 
