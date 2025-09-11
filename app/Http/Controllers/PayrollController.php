@@ -2,55 +2,81 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Controllers\Controller;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
-use App\Models\Session;
 use App\Models\Payroll;
-use Yajra\DataTables\Facades\DataTables;
 
 class PayrollController extends Controller
 {
-    public function index(Request $request)
-    {
-        if ($request->ajax()) {
-            $sessions = Session::with(['teacher', 'student'])->select('sessions.*');
+    /**
+     * Display the payroll list.
+     */
+    
+   public function index()
+{
+    $sessions = DB::table('payroll as p')
+        ->join('teachers as t','p.teacher_id','=','t.id')
+        ->join('accounts as a','t.account_id','=','a.id') // teacher name from accounts
+        ->join('students as st','p.student_id','=','st.id') // student name from students
+        ->select(
+            'p.teacher_id',
+            'p.student_id',
+            'p.month',
+            'p.year',
+            'p.session_duration',
+            'p.session_rate',
+            DB::raw("CONCAT(a.first_name,' ',a.last_name) as teacher_name"),
+            DB::raw("CONCAT(st.first_name,' ',st.last_name) as student_name")
+        )
+        ->orderBy('p.year','desc')
+        ->orderBy('p.month','desc')
+        ->get();
 
-            return DataTables::of($sessions)
-                ->addIndexColumn()
-                ->addColumn('teacher_name', fn($session) => $session->teacher?->name ?? 'N/A')
-                ->addColumn('student_name', fn($session) => $session->student?->name ?? 'N/A')
-                ->addColumn('month', fn($session) => $session->created_at?->format('F') ?? '-')
-                ->addColumn('year', fn($session) => $session->created_at?->format('Y') ?? '-')
-                ->addColumn('session_duration', fn($session) => $session->total_hours)
-                ->addColumn('session_rate', fn($session) => $session->rate)
-                ->addColumn('session_id', fn($session) => $session->id)
-                ->rawColumns(['session_id'])
-                ->make(true);
-        }
+    return view('payroll.index', compact('sessions'));
+}
 
-        return view('payroll.index');
-    }
 
-    public function refreshRate($sessionId)
-    {
-        $session = Session::with(['teacher', 'student'])->findOrFail($sessionId);
+    /**
+     * Refresh payroll and store records into payroll table.
+     */
+  public function refresh()
+{
+    // Aggregate sessions by teacher, student, month/year
+    $sessions = DB::table('sessions as s')
+        ->select(
+            's.teacher_id',
+            's.student_id',
+            DB::raw('MONTH(s.session_date) as month'),
+            DB::raw('YEAR(s.session_date) as year'),
+            DB::raw('SUM(TIMESTAMPDIFF(MINUTE, s.time_in, s.time_out)/60) as session_duration'),
+            DB::raw('MAX(s.session_rate) as session_rate')
+        )
+        ->groupBy('s.teacher_id','s.student_id',DB::raw('YEAR(s.session_date)'),DB::raw('MONTH(s.session_date)'))
+        ->get();
 
-        $totalAmount = $session->total_hours * $session->rate;
+    foreach ($sessions as $session) {
+        $amount = $session->session_duration * $session->session_rate;
 
-        Payroll::updateOrCreate(
-            ['session_id' => $session->id],
+        // Save only IDs to payroll table
+        DB::table('payroll')->updateOrInsert(
             [
                 'teacher_id' => $session->teacher_id,
                 'student_id' => $session->student_id,
-                'total_hours' => $session->total_hours,
-                'session_rate' => $session->rate,
-                'amount' => $totalAmount
+                'month'      => $session->month,
+                'year'       => $session->year,
+            ],
+            [
+                'session_duration' => $session->session_duration,
+                'session_rate'     => $session->session_rate,
+                // 'amount'           => $amount,
+                'updated_at'       => now(),
+                'created_at'       => now(),
             ]
         );
-
-        return response()->json([
-            'success' => true,
-            'message' => "Payroll refreshed for session ID {$session->id}"
-        ]);
     }
+
+    return redirect()->route('admin.payroll.index')
+        ->with('success', 'Payroll refreshed successfully!');
+}
+
 }

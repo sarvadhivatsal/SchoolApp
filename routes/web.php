@@ -92,8 +92,13 @@ Route::middleware(['admin'])->prefix('admin')->group(function () {
 
     Route::get('/admin/sessions/get-goals/{studentId}', [SessionController::class, 'getGoals']);
 
-   Route::get('/admin/payroll', [PayrollController::class, 'index'])->name('admin.payroll.index');
-Route::post('/admin/payroll/refresh/{session}', [PayrollController::class, 'refreshRate'])->name('admin.payroll.refresh');
+   // web.php
+Route::get('/admin/payroll', [PayrollController::class, 'index'])
+    ->name('admin.payroll.index');
+
+Route::post('/admin/payroll/refresh', [PayrollController::class, 'refresh'])
+    ->name('admin.payroll.refresh');
+
 });
 
 
