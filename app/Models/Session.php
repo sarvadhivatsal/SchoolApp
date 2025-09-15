@@ -18,8 +18,9 @@ class Session extends Model
         'goal_ids',
         'session_rate',
     ];
+
     protected $casts = [
-        'goal_ids' => 'array', // automatically cast JSON to array
+        'goal_ids' => 'array', // JSON -> array automatically
     ];
 
     // Relation to Teacher
@@ -28,19 +29,15 @@ class Session extends Model
         return $this->belongsTo(Teacher::class, 'teacher_id', 'id');
     }
 
-    // Relation to Student
+    // Relation to single Student
     public function student()
     {
         return $this->belongsTo(Student::class, 'student_id', 'id');
     }
-    //     public function studentGoals()
-    // {
-    //     return $this->hasMany(\App\Models\StudentGoal::class, 'session_id');
-    // }
-    // public function goals()
-    // {
-    //     return $this->belongsToMany(StudentGoal::class, 'student_goals', 'id', 'id')
-    //                 ->whereIn('id', $this->goal_ids ?? []);
-    // }
 
+    // Relation to multi-student
+    public function sessionStudents()
+    {
+        return $this->hasMany(SessionStudent::class, 'session_id');
+    }
 }

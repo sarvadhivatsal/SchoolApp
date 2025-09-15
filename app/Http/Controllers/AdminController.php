@@ -1,15 +1,19 @@
 <?php
+
 namespace App\Http\Controllers;
 
-use App\Models\Teacher;
-use App\Models\Student;
 use App\Models\Assignment;
+use App\Models\Student;
+use App\Models\Teacher;
+
 class AdminController extends Controller
 {
-    public function dashboard(){
+    public function dashboard()
+    {
         $teachersCount = Teacher::count();
         $studentsCount = Student::count();
         $assignmentsCount = Assignment::count();
-        return view('admindashboard',compact('teachersCount','studentsCount','assignmentsCount'));
+
+        return view('admindashboard', compact('teachersCount', 'studentsCount', 'assignmentsCount'));
     }
 }

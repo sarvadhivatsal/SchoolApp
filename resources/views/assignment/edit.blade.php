@@ -20,7 +20,7 @@
 
         <div class="form-group mb-3">
             <label>Teacher</label>
-            <select name="teacher_id" class="form-control" required>
+            <select name="teacher_id" id="teacher-select" class="form-control" required>
                 @foreach($teachers as $teacher)
                     <option value="{{ $teacher->id }}" {{ $assignment->teacher_id == $teacher->id ? 'selected' : '' }}>
                         {{ $teacher->account->first_name }} {{ $teacher->account->last_name }}
@@ -31,7 +31,7 @@
 
         <div class="form-group mb-3">
             <label>Student</label>
-            <select name="student_id" class="form-control" required>
+            <select name="student_id" id="student-select" class="form-control" required>
                 @foreach($students as $student)
                     <option value="{{ $student->id }}" {{ $assignment->student_id == $student->id ? 'selected' : '' }}>
                         {{ $student->first_name }} {{ $student->last_name }}
@@ -69,3 +69,34 @@
     </form>
 </div>
 @endsection
+
+@push('styles')
+    {{-- ✅ Include Select2 CSS --}}
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+@endpush
+
+@push('scripts')
+    {{-- ✅ Include Select2 JS --}}
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+
+    <script>
+    $(document).ready(function () {
+        // ✅ Initialize Select2 for Student dropdown
+        $('#student-select').select2({
+            placeholder: 'Select Student',
+            allowClear: true,
+            width: '100%'
+        });
+    });
+
+     $(document).ready(function () {
+        // ✅ Initialize Select2 for Teacher dropdown
+        $('#teacher-select').select2({
+            placeholder: 'Select Teacher',
+            allowClear: true,
+            width: '100%'
+        });
+    });
+    </script>
+@endpush
+
